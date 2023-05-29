@@ -1,9 +1,9 @@
 [tool.poetry]
 name = "surrealdb"
 version = "0.3.1"
-description = "The official SurrealDB library for Python."
+description = "Aiohttp version of the official SurrealDB library for Python."
 readme = "README.md"
-authors = ["SurrealDB"]
+authors = ["chillymosh", "SurrealDB"]
 license = "Apache-2.0"
 repository = "https://github.com/surrealdb/surrealdb.py"
 documentation = "https://surrealdb.com/docs/integration/libraries/python"
@@ -22,10 +22,9 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.7"
-httpx = ">=0.23.0"
+python = "^3.10"
+aiohttp = ">=3.8.4"
 pydantic = "^1.10.6"
-websockets = "^10.4"
 
 [tool.poetry.dev-dependencies]
 pre-commit = ">=2.20.0"
