@@ -217,7 +217,7 @@ class Surreal:
         await self.close()
 
     async def connect(self) -> None:
-        self.session = self.session or aiohttp.ClientSession()
+        self.session = aiohttp.ClientSession()
         self.ws = await self.session.ws_connect(self.url)
         self.client_state = ConnectionState.CONNECTED
 
