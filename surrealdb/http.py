@@ -76,18 +76,23 @@ class SurrealHTTP:
         self._password = password
 
         if session is None:
-            auth = aiohttp.BasicAuth(login=self._username, password=self._password)
-
-            headers = {
-                "NS": self._namespace,
-                "DB": self._database,
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-            }
-
-            self._http = aiohttp.ClientSession(headers=headers, auth=auth)
+            headers, auth = self._generate_headers_and_auth()
+            self._session = aiohttp.ClientSession(headers=headers, auth=auth)
         else:
-            self._http = session
+            headers, auth = self._generate_headers_and_auth()
+            session._default_headers.update(headers)  # Update session headers
+            session._default_auth = auth  # Set authentication for the session
+            self._session = session
+
+    def _generate_headers_and_auth(self) -> tuple[dict[str, str], aiohttp.BasicAuth]:
+        headers = {
+            "NS": self._namespace,
+            "DB": self._database,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        auth = aiohttp.BasicAuth(login=self._username, password=self._password)
+        return headers, auth
 
     async def __aenter__(self) -> SurrealHTTP:
         """Connect to the http client when entering the context manager."""
@@ -104,7 +109,7 @@ class SurrealHTTP:
 
     async def close(self) -> None:
         """Close the persistent connection to the database."""
-        await self._http.close()
+        await self._session.close()
 
     async def _request(
         self,
@@ -113,7 +118,7 @@ class SurrealHTTP:
         data: str | None = None,
         params: Any | None = None,
     ) -> Any:
-        async with self._http.request(
+        async with self._session.request(
             method=method,
             url=self._url + uri,
             data=data,
@@ -228,6 +233,7 @@ class SurrealHTTP:
         )
         if not response and record_id is not None:
             raise SurrealException(f"Key {record_id} not found in table {table}")
+
         return response[0]["result"]  # type: ignore
 
     async def update(self, thing: str, data: Any) -> dict[str, Any]:
@@ -262,6 +268,7 @@ class SurrealHTTP:
             uri=f"/key/{table}/{record_id}" if record_id else f"/key/{table}",
             data=json.dumps(data, ensure_ascii=False),
         )
+
         return response[0]["result"]  # type: ignore
 
     async def patch(self, thing: str, data: Any) -> dict[str, Any]:

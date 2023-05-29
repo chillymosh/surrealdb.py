@@ -657,9 +657,7 @@ class Surreal:
     # ------------------------------------------------------------------------
     # Send & Receive methods
 
-    async def _send_receive(
-        self, request: Request
-    ) -> ResponseSuccess | ResponseError:
+    async def _send_receive(self, request: Request) -> ResponseSuccess | ResponseError:
         """Send a request to the Surreal server and receive a response.
 
         Args:
