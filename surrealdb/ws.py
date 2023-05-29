@@ -217,23 +217,15 @@ class Surreal:
         await self.close()
 
     async def connect(self) -> None:
-        """Connect to a local or remote database endpoint.
-
-        Examples:
-            Connect to a local endpoint
-                db = Surreal()
-                await db.connect('ws://127.0.0.1:8000/rpc')
-                await db.signin({"user": "root", "pass": "root"})
-        """
-        async with aiohttp.ClientSession() as session:
-            self.ws = await session.ws_connect(self.url)
+        self.session = aiohttp.ClientSession()
+        self.ws = await self.session.ws_connect(self.url)
         self.client_state = ConnectionState.CONNECTED
 
     async def close(self) -> None:
-        """Close the persistent connection to the database."""
-        if self.ws is None:
-            return
-        await self.ws.close()
+        if self.ws:
+            await self.ws.close()
+        if self.session:
+            await self.session.close()
         self.client_state = ConnectionState.DISCONNECTED
 
     async def use(self, namespace: str, database: str) -> None:
