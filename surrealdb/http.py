@@ -80,8 +80,8 @@ class SurrealHTTP:
             self._session = aiohttp.ClientSession(headers=headers, auth=auth)
         else:
             headers, auth = self._generate_headers_and_auth()
-            session._default_headers.update(headers)  # Update session headers
-            session._default_auth = auth  # Set authentication for the session
+            session._default_headers.update(headers)
+            session._default_auth = auth
             self._session = session
 
     def _generate_headers_and_auth(self) -> tuple[dict[str, str], aiohttp.BasicAuth]:
@@ -234,7 +234,7 @@ class SurrealHTTP:
         if not response and record_id is not None:
             raise SurrealException(f"Key {record_id} not found in table {table}")
 
-        return response[0]["result"]  # type: ignore
+        return response[0]["result"]
 
     async def update(self, thing: str, data: Any) -> dict[str, Any]:
         """Update all records in a table, or a specific record, in the database.
@@ -269,7 +269,7 @@ class SurrealHTTP:
             data=json.dumps(data, ensure_ascii=False),
         )
 
-        return response[0]["result"]  # type: ignore
+        return response[0]["result"]
 
     async def patch(self, thing: str, data: Any) -> dict[str, Any]:
         """Apply JSON Patch changes to all records, or a specific record, in the database.
@@ -302,7 +302,7 @@ class SurrealHTTP:
             uri=f"/key/{table}/{record_id}" if record_id else f"/key/{table}",
             data=json.dumps(data, ensure_ascii=False),
         )
-        return response[0]["result"]  # type: ignore
+        return response[0]["result"]
 
     async def delete(self, thing: str) -> list[dict[str, Any]]:
         """Delete all records in a table, or a specific record, from the database.
