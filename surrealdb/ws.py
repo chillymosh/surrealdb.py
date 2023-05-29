@@ -16,13 +16,12 @@ limitations under the License.
 from __future__ import annotations
 
 import enum
-import json
 import uuid
 from types import TracebackType
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Any
 
+import aiohttp
 import pydantic
-import websockets
 
 __all__ = ("Surreal",)
 
@@ -82,14 +81,12 @@ class Request(pydantic.BaseModel):
 
     id: str
     method: str
-    params: Optional[Tuple] = None
+    params: tuple | None = None
 
     @pydantic.validator("params", pre=True, always=True)
     def validate_params(cls, value):  # pylint: disable=no-self-argument
         """Validate the parameters of the request."""
-        if value is None:
-            return tuple()
-        return value
+        return () if value is None else value
 
     class Config:
         """Represents the configuration of the RPC request."""
@@ -140,8 +137,8 @@ class ResponseError(pydantic.BaseModel):
 
 
 def _validate_response(
-    response: Union[ResponseSuccess, ResponseError],
-    exception: Type[Exception] = SurrealException,
+    response: ResponseSuccess | ResponseError,
+    exception: type[Exception] = SurrealException,
 ) -> ResponseSuccess:
     """Validate the response.
     The response is validated by checking if it is an error. If it is an error,
@@ -192,8 +189,8 @@ class Surreal:
     def __init__(self, url: str) -> None:
         self.url = url
         self.client_state = ConnectionState.CONNECTING
-        self.token: Optional[str] = None
-        self.ws: Optional[websockets.WebSocketClientProtocol] = None  # type: ignore
+        self.token: str | None = None
+        self.ws: aiohttp.ClientWebSocketResponse | None = None
 
     async def __aenter__(self) -> Surreal:
         """Create a connection when entering the context manager.
@@ -206,9 +203,9 @@ class Surreal:
 
     async def __aexit__(
         self,
-        exc_type: Optional[Type[BaseException]] = None,
-        exc_value: Optional[Type[BaseException]] = None,
-        traceback: Optional[Type[TracebackType]] = None,
+        exc_type: type[BaseException] | None = None,
+        exc_value: type[BaseException] | None = None,
+        traceback: type[TracebackType] | None = None,
     ) -> None:
         """Close the connection when exiting the context manager.
 
@@ -228,11 +225,14 @@ class Surreal:
                 await db.connect('ws://127.0.0.1:8000/rpc')
                 await db.signin({"user": "root", "pass": "root"})
         """
-        self.ws = await websockets.connect(self.url)  # type: ignore
+        async with aiohttp.ClientSession() as session:
+            self.ws = await session.ws_connect(self.url)
         self.client_state = ConnectionState.CONNECTED
 
     async def close(self) -> None:
         """Close the persistent connection to the database."""
+        if self.ws is None:
+            return
         await self.ws.close()
         self.client_state = ConnectionState.DISCONNECTED
 
@@ -251,7 +251,7 @@ class Surreal:
         )
         _validate_response(response)
 
-    async def signup(self, vars: Dict[str, Any]) -> str:
+    async def signup(self, vars: dict[str, Any]) -> str:
         """Sign this connection up to a specific authentication scope.
 
         Args:
@@ -270,7 +270,7 @@ class Surreal:
         self.token = token
         return self.token
 
-    async def signin(self, vars: Dict[str, Any]) -> str:
+    async def signin(self, vars: dict[str, Any]) -> str:
         """Sign this connection in to a specific authentication scope.
 
         Args:
@@ -368,8 +368,8 @@ class Surreal:
         return success.result
 
     async def query(
-        self, sql: str, vars: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        self, sql: str, vars: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Run a set of SurrealQL statements against the database.
 
         Args:
@@ -399,7 +399,7 @@ class Surreal:
         success: ResponseSuccess = _validate_response(response)
         return success.result
 
-    async def select(self, thing: str) -> List[Dict[str, Any]]:
+    async def select(self, thing: str) -> list[dict[str, Any]]:
         """Select all records in a table (or other entity),
         or a specific record, in the database.
 
@@ -426,8 +426,8 @@ class Surreal:
         return success.result
 
     async def create(
-        self, thing: str, data: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        self, thing: str, data: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Create a record in the database.
 
         This function will run the following query in the database:
@@ -463,8 +463,8 @@ class Surreal:
         return success.result
 
     async def update(
-        self, thing: str, data: Optional[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        self, thing: str, data: dict[str, Any] | None
+    ) -> list[dict[str, Any]]:
         """Update all records in a table, or a specific record, in the database.
 
         This function replaces the current document / record data with the
@@ -503,8 +503,8 @@ class Surreal:
         return success.result
 
     async def merge(
-        self, thing: str, data: Optional[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        self, thing: str, data: dict[str, Any] | None
+    ) -> list[dict[str, Any]]:
         """Modify by deep merging all records in a table, or a specific record, in the database.
 
         This function merges the current document / record data with the
@@ -545,8 +545,8 @@ class Surreal:
         return success.result
 
     async def patch(
-        self, thing: str, data: Optional[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        self, thing: str, data: dict[str, Any] | None
+    ) -> list[dict[str, Any]]:
         """Apply JSON Patch changes to all records, or a specific record, in the database.
 
         This function patches the current document / record data with
@@ -583,7 +583,7 @@ class Surreal:
         )
         return success.result
 
-    async def delete(self, thing: str) -> List[Dict[str, Any]]:
+    async def delete(self, thing: str) -> list[dict[str, Any]]:
         """Delete all records in a table, or a specific record, from the database.
 
         This function will run the following query in the database:
@@ -609,7 +609,7 @@ class Surreal:
     # ------------------------------------------------------------------------
     # Surreal library methods - undocumented but implemented in js library
 
-    async def info(self) -> Optional[Dict[str, Any]]:
+    async def info(self) -> dict[str, Any] | None:
         """Retrieve info about the current Surreal instance.
 
         Returns:
@@ -667,7 +667,7 @@ class Surreal:
 
     async def _send_receive(
         self, request: Request
-    ) -> Union[ResponseSuccess, ResponseError]:
+    ) -> ResponseSuccess | ResponseError:
         """Send a request to the Surreal server and receive a response.
 
         Args:
@@ -692,9 +692,10 @@ class Surreal:
             Exception: If the client is not connected to the Surreal server.
         """
         self._validate_connection()
-        await self.ws.send(json.dumps(request.dict(), ensure_ascii=False))
+        assert self.ws is not None
+        await self.ws.send_json(request.dict())
 
-    async def _recv(self) -> Union[ResponseSuccess, ResponseError]:
+    async def _recv(self) -> ResponseSuccess | ResponseError:
         """Receive a response from the Surreal server.
 
         Returns:
@@ -705,7 +706,8 @@ class Surreal:
             Exception: If the response contains an error.
         """
         self._validate_connection()
-        response = json.loads(await self.ws.recv())
+        assert self.ws is not None
+        response = await self.ws.receive_json()
         if response.get("error"):
             return ResponseError(**response["error"])
         return ResponseSuccess(**response)

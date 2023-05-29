@@ -18,9 +18,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Dict, List, Optional, Type
+from typing import Any
 
-import httpx
+import aiohttp
 
 __all__ = ("SurrealHTTP",)
 
@@ -41,7 +41,7 @@ class SurrealResponse:
 
     time: str
     status: str
-    result: List[Dict[str, Any]]
+    result: list[dict[str, Any]]
 
 
 # ------------------------------------------------------------------------
@@ -57,6 +57,7 @@ class SurrealHTTP:
         database: The database to use for the connection.
         username: The username to use for the connection.
         password: The password to use for the connection.
+        session: An optional existing aiohttp ClientSession.
     """
 
     def __init__(
@@ -66,6 +67,7 @@ class SurrealHTTP:
         database: str,
         username: str,
         password: str,
+        session: aiohttp.ClientSession | None = None,
     ) -> None:
         self._url = url
         self._namespace = namespace
@@ -73,69 +75,54 @@ class SurrealHTTP:
         self._username = username
         self._password = password
 
-        self._http = httpx.AsyncClient(
-            base_url=self._url,
-            auth=httpx.BasicAuth(
-                username=self._username,
-                password=self._password,
-            ),
-            headers={
+        if session is None:
+            auth = aiohttp.BasicAuth(login=self._username, password=self._password)
+
+            headers = {
                 "NS": self._namespace,
                 "DB": self._database,
                 "Accept": "application/json",
                 "Content-Type": "application/json",
-            },
-        )
+            }
+
+            self._http = aiohttp.ClientSession(headers=headers, auth=auth)
+        else:
+            self._http = session
 
     async def __aenter__(self) -> SurrealHTTP:
         """Connect to the http client when entering the context manager."""
-        await self.connect()
         return self
 
     async def __aexit__(
         self,
-        exc_type: Optional[Type[BaseException]] = None,
-        exc_value: Optional[BaseException] = None,
-        traceback: Optional[TracebackType] = None,
+        exc_type: type[BaseException] | None = None,
+        exc_value: BaseException | None = None,
+        traceback: TracebackType | None = None,
     ) -> None:
         """Disconnect from the http client when exiting the context manager."""
         await self.close()
 
-    async def connect(self) -> None:
-        """Connect to a local or remote database endpoint."""
-        await self._http.__aenter__()
-
     async def close(self) -> None:
         """Close the persistent connection to the database."""
-        await self._http.aclose()
+        await self._http.close()
 
     async def _request(
         self,
         method: str,
         uri: str,
-        data: Optional[str] = None,
-        params: Optional[Any] = None,
-    ) -> SurrealResponse:
-        surreal_response = await self._http.request(
+        data: str | None = None,
+        params: Any | None = None,
+    ) -> Any:
+        async with self._http.request(
             method=method,
-            url=uri,
-            content=data,
+            url=self._url + uri,
+            data=data,
             params=params,
-        )
-        surreal_data = await surreal_response.aread()
-        return json.loads(surreal_data)
+        ) as surreal_response:
+            surreal_data = await surreal_response.text()
+            return json.loads(surreal_data)
 
-    # TODO add missing methods - currently undocumented
-    # Missing method - wait
-    # Missing method - use
-    # Missing method - invalidate
-    # Missing method - authenticate
-    # Missing method - let
-    # Missing method - merge
-    # TODO fix signup and signin methods
-    # TODO: Review type: ignore comments.
-
-    async def signup(self, vars: Dict[str, Any]) -> str:
+    async def signup(self, vars: dict[str, Any]) -> str:
         """Sign this connection up to a specific authentication scope.
 
         Args:
@@ -144,12 +131,9 @@ class SurrealHTTP:
         Examples:
             await db.signup({"user": "bob", "pass": "123456"})
         """
-        response = await self._request(
-            method="POST", uri="/signup", data=json.dumps(vars)
-        )
-        return response  # type: ignore
+        return await self._request(method="POST", uri="/signup", data=json.dumps(vars))
 
-    async def signin(self, vars: Dict[str, Any]) -> str:
+    async def signin(self, vars: dict[str, Any]) -> str:
         """Sign this connection in to a specific authentication scope.
 
         Args:
@@ -158,14 +142,11 @@ class SurrealHTTP:
         Examples:
             await db.signin({"user": "root", "pass": "root"})
         """
-        response = await self._request(
-            method="POST", uri="/signin", data=json.dumps(vars)
-        )
-        return response  # type: ignore
+        return await self._request(method="POST", uri="/signin", data=json.dumps(vars))
 
     async def query(
-        self, sql: str, vars: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        self, sql: str, vars: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Run a set of SurrealQL statements against the database.
 
         Args:
@@ -185,10 +166,9 @@ class SurrealHTTP:
             Get all of the results from the second query
                 result[1]['result']
         """
-        response = await self._request(method="POST", uri="/sql", data=sql, params=vars)
-        return response  # type: ignore
+        return await self._request(method="POST", uri="/sql", data=sql, params=vars)
 
-    async def select(self, thing: str) -> List[Dict[str, Any]]:
+    async def select(self, thing: str) -> list[dict[str, Any]]:
         """Select all records in a table (or other entity),
         or a specific record, in the database.
 
@@ -215,9 +195,9 @@ class SurrealHTTP:
         )
         if not response and record_id is not None:
             raise SurrealException(f"Key {record_id} not found in table {table}")
-        return response[0]["result"]  # type: ignore
+        return response[0]["result"]
 
-    async def create(self, thing: str, data: Optional[Dict[str, Any]] = None) -> str:
+    async def create(self, thing: str, data: dict[str, Any] | None = None) -> str:
         """Create a record in the database.
 
         This function will run the following query in the database:
@@ -250,7 +230,7 @@ class SurrealHTTP:
             raise SurrealException(f"Key {record_id} not found in table {table}")
         return response[0]["result"]  # type: ignore
 
-    async def update(self, thing: str, data: Any) -> Dict[str, Any]:
+    async def update(self, thing: str, data: Any) -> dict[str, Any]:
         """Update all records in a table, or a specific record, in the database.
 
         This function replaces the current document / record data with the
@@ -284,7 +264,7 @@ class SurrealHTTP:
         )
         return response[0]["result"]  # type: ignore
 
-    async def patch(self, thing: str, data: Any) -> Dict[str, Any]:
+    async def patch(self, thing: str, data: Any) -> dict[str, Any]:
         """Apply JSON Patch changes to all records, or a specific record, in the database.
 
         This function patches the current document / record data with
@@ -317,7 +297,7 @@ class SurrealHTTP:
         )
         return response[0]["result"]  # type: ignore
 
-    async def delete(self, thing: str) -> List[Dict[str, Any]]:
+    async def delete(self, thing: str) -> list[dict[str, Any]]:
         """Delete all records in a table, or a specific record, from the database.
 
         This function will run the following query in the database:
@@ -333,8 +313,7 @@ class SurrealHTTP:
                 await db.delete('person:h5wxrf2ewk8xjxosxtyc')
         """
         table, record_id = thing.split(":") if ":" in thing else (thing, None)
-        response = await self._request(
+        return await self._request(
             method="DELETE",
             uri=f"/key/{table}/{record_id}" if record_id else f"/key/{table}",
         )
-        return response  # type: ignore
