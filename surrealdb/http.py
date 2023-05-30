@@ -74,15 +74,8 @@ class SurrealHTTP:
         self._database = database
         self._username = username
         self._password = password
-
-        if session is None:
-            headers, auth = self._generate_headers_and_auth()
-            self._session = aiohttp.ClientSession(headers=headers, auth=auth)
-        else:
-            headers, auth = self._generate_headers_and_auth()
-            session._default_headers.update(headers)
-            session._default_auth = auth
-            self._session = session
+        self._session = session or aiohttp.ClientSession()
+        self._existing_session = session
 
     def _generate_headers_and_auth(self) -> tuple[dict[str, str], aiohttp.BasicAuth]:
         headers = {
@@ -109,7 +102,9 @@ class SurrealHTTP:
 
     async def close(self) -> None:
         """Close the persistent connection to the database."""
-        await self._session.close()
+        if self._existing_session is None:
+            await self._session.close()
+
 
     async def _request(
         self,
@@ -118,14 +113,18 @@ class SurrealHTTP:
         data: str | None = None,
         params: Any | None = None,
     ) -> Any:
+        headers, auth = self._generate_headers_and_auth()
         async with self._session.request(
             method=method,
             url=self._url + uri,
             data=data,
             params=params,
+            headers=headers,
+            auth=auth
         ) as surreal_response:
             surreal_data = await surreal_response.text()
             return json.loads(surreal_data)
+
 
     async def signup(self, vars: dict[str, Any]) -> str:
         """Sign this connection up to a specific authentication scope.
