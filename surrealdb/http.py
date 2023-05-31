@@ -118,16 +118,21 @@ class SurrealHTTP:
         params: Any | None = None,
     ) -> Any:
         headers, auth = self._generate_headers_and_auth()
-        async with self._session.request(
-            method=method,
-            url=self._url + uri,
-            data=data,
-            params=params,
-            headers=headers,
-            auth=auth,
-        ) as surreal_response:
-            surreal_data = await surreal_response.text()
-            return json.loads(surreal_data)
+        try:
+            async with self._session.request(
+                method=method,
+                url=self._url + uri,
+                data=data,
+                params=params,
+                headers=headers,
+                auth=auth
+            ) as surreal_response:
+                if surreal_response.status != 200:
+                    raise SurrealException(surreal_response.status, await surreal_response.text())
+                surreal_data = await surreal_response.text()
+                return json.loads(surreal_data)
+        except aiohttp.ClientError as e:
+            raise SurrealException(str(e)) from e
 
     async def signup(self, vars: dict[str, Any]) -> str:
         """Sign this connection up to a specific authentication scope.
