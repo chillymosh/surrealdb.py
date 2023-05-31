@@ -114,10 +114,11 @@ class SurrealHTTP:
         self,
         method: str,
         uri: str,
-        data: str | None = None,
-        params: Any | None = None,
+        data: Any = None,
+        params: Any = None,
     ) -> Any:
         headers, auth = self._generate_headers_and_auth()
+        data = json.dumps(data) if isinstance(data, dict) else data
         try:
             async with self._session.request(
                 method=method,
@@ -125,14 +126,28 @@ class SurrealHTTP:
                 data=data,
                 params=params,
                 headers=headers,
-                auth=auth
-            ) as surreal_response:
-                if surreal_response.status != 200:
-                    raise SurrealException(surreal_response.status, await surreal_response.text())
-                surreal_data = await surreal_response.text()
-                return json.loads(surreal_data)
-        except aiohttp.ClientError as e:
-            raise SurrealException(str(e)) from e
+                auth=auth,
+            ) as response:
+                if response.status >= 400:
+                    message = await response.text()
+                    raise SurrealException(
+                        f"HTTP request failed with status {response.status}. Server response: {message}"
+                    )
+                data = await response.text()
+                return json.loads(data) if data else None
+        except Exception as e:
+            raise SurrealException("Failed to complete the request.") from e
+
+    async def _modify(self, method: str, thing: str, data: Any = None) -> Any:
+        table, record_id = thing.split(":") if ":" in thing else (thing, None)
+        response = await self._request(
+            method=method,
+            uri=f"/key/{table}/{record_id}" if record_id else f"/key/{table}",
+            data=data,
+        )
+        if not response and record_id is not None:
+            raise SurrealException(f"Key {record_id} not found in table {table}")
+        return response[0]["result"]
 
     async def signup(self, vars: dict[str, Any]) -> str:
         """Sign this connection up to a specific authentication scope.
@@ -232,16 +247,7 @@ class SurrealHTTP:
                         },
                 })
         """
-        table, record_id = thing.split(":") if ":" in thing else (thing, None)
-        response = await self._request(
-            method="POST",
-            uri=f"/key/{table}/{record_id}" if record_id else f"/key/{table}",
-            data=json.dumps(data, ensure_ascii=False),
-        )
-        if not response and record_id is not None:
-            raise SurrealException(f"Key {record_id} not found in table {table}")
-
-        return response[0]["result"]
+        return await self._modify("POST", thing, data)
 
     async def update(self, thing: str, data: Any) -> dict[str, Any]:
         """Update all records in a table, or a specific record, in the database.
@@ -269,14 +275,7 @@ class SurrealHTTP:
                         },
                 })
         """
-        table, record_id = thing.split(":") if ":" in thing else (thing, None)
-        response = await self._request(
-            method="PUT",
-            uri=f"/key/{table}/{record_id}" if record_id else f"/key/{table}",
-            data=json.dumps(data, ensure_ascii=False),
-        )
-
-        return response[0]["result"]
+        return await self._modify("PUT", thing, data)
 
     async def patch(self, thing: str, data: Any) -> dict[str, Any]:
         """Apply JSON Patch changes to all records, or a specific record, in the database.
@@ -303,13 +302,7 @@ class SurrealHTTP:
                 { 'op': "remove", "path": "/temp" },
             ])
         """
-        table, record_id = thing.split(":") if ":" in thing else (thing, None)
-        response = await self._request(
-            method="PATCH",
-            uri=f"/key/{table}/{record_id}" if record_id else f"/key/{table}",
-            data=json.dumps(data, ensure_ascii=False),
-        )
-        return response[0]["result"]
+        return await self._modify("PATCH", thing, data)
 
     async def delete(self, thing: str) -> list[dict[str, Any]]:
         """Delete all records in a table, or a specific record, from the database.
