@@ -217,11 +217,13 @@ class Surreal:
         await self.close()
 
     async def connect(self) -> None:
+        """Create a ClientSession and connect to the websocket."""
         self.session = aiohttp.ClientSession()
         self.ws = await self.session.ws_connect(self.url)
         self.client_state = ConnectionState.CONNECTED
 
     async def close(self) -> None:
+        """Close the websocket and ClientSession."""
         if self.ws:
             await self.ws.close()
         if self.session:
